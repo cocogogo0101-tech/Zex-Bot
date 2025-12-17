@@ -8,6 +8,7 @@ main.py - FIXED VERSION
 ✅ الردود التلقائية لها الأولوية
 ✅ Error handling محسّن
 ✅ Logging مفصل
+✅ حماية تمنع البوت من البقاء في سيرفرات غير مسموح بها
 """
 
 import os
@@ -71,6 +72,33 @@ from cmd_polls import setup_poll_commands
 from cmd_invites import setup_invite_commands
 from cmd_analytics import setup_analytics_commands
 
+# ==================== Normalize GUILD_ID و إعدادات الأمان ====================
+# حول GUILD_ID إلى int لو موجود، وإلا خليه None
+if GUILD_ID:
+    try:
+        GUILD_ID = int(GUILD_ID)
+        bot_logger.info(f'🔐 GUILD_ID مفعل: {GUILD_ID}')
+    except Exception as e:
+        # لو bot_logger غير جاهز لأي سبب، نطبع تحذير بسيط
+        try:
+            bot_logger.warning(f'⚠️ قيمة GUILD_ID غير صالحة، تم تجاهلها: {GUILD_ID} ({e})')
+        except Exception:
+            print(f'⚠️ قيمة GUILD_ID غير صالحة، تم تجاهلها: {GUILD_ID} ({e})')
+        GUILD_ID = None
+else:
+    bot_logger.info('⚠️ GUILD_ID غير معرّف — البوت لن يقيّد الأوامر تلقائياً')
+
+# فحص عام يمنع تنفيذ أوامر البريفكس خارج الـ GUILD المسموح (لحماية إضافية)
+@bot.check
+async def global_guild_check(ctx):
+    # حظر الأوامر في الخاص
+    if ctx.guild is None:
+        return False
+    # لو محدد GUILD_ID => اسمح فقط به
+    if GUILD_ID and ctx.guild.id != GUILD_ID:
+        return False
+    return True
+
 # ==================== Global State ====================
 
 commands_registered = False
@@ -91,6 +119,16 @@ async def on_ready():
 
         # الاتصال بقاعدة البيانات
         await db.connect()
+
+        # === حماية: اخرج من أي Guild غير مسموح به فورًا ===
+        if GUILD_ID:
+            for g in list(bot.guilds):
+                if g.id != GUILD_ID:
+                    try:
+                        await g.leave()
+                        bot_logger.warning(f'غادرت {g.name} ({g.id}) لأنه غير مصرح به (GUILD_ID مُفعل)')
+                    except Exception as e:
+                        bot_logger.exception(f'فشل الخروج من {g.name}: {e}')
 
         # تسجيل الأوامر
         if not commands_registered:
@@ -172,6 +210,22 @@ async def on_ready():
     except Exception as e:
         bot_logger.exception('💥 خطأ حرج في on_ready', e)
         raise
+
+# ==================== حماية عند الانضمام لسيرفر جديد ====================
+
+@bot.event
+async def on_guild_join(guild):
+    """
+    إذا أضيف البوت لأي Guild غير مسموح به → اخرج فورًا.
+    هذا يضمن أنه حتى لو حصل رابط دعوة أو صار Bug في Dev Portal،
+    البوت ما يظل في سيرفرات ثالثة.
+    """
+    if GUILD_ID and guild.id != GUILD_ID:
+        bot_logger.warning(f'محاولة إضافة البوت إلى {guild.name} ({guild.id}) — سأخرج الآن')
+        try:
+            await guild.leave()
+        except Exception as e:
+            bot_logger.exception(f'فشل الخروج من {guild.name}: {e}')
 
 # ==================== أحداث الأعضاء ====================
 
