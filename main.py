@@ -37,11 +37,17 @@ from logger import bot_logger
 
 from database import db
 from config_manager import config
+
 from system_tickets import ticket_system, TicketControlView, TicketPanelView
 from system_autoresponse import autoresponse_system
 from system_leveling import leveling_system
 from system_warnings import warning_system
 from system_protection import protection_system
+
+# ✅ أنظمة جديدة
+from system_polls import poll_system
+from system_invites import invite_tracker
+from system_analytics import analytics_system
 
 from event_welcome import handle_member_join, handle_member_remove
 from event_logs import log_message_delete, log_message_edit, log_member_join, log_member_remove
@@ -54,6 +60,12 @@ from cmd_config import setup_config_commands
 from cmd_utility import setup_utility_commands
 from cmd_fun import setup_fun_commands
 from cmd_info import setup_info_commands
+
+# ✅ أوامر جديدة
+from cmd_autoresponse import setup_autoresponse_commands
+from cmd_polls import setup_poll_commands
+from cmd_invites import setup_invite_commands
+from cmd_analytics import setup_analytics_commands
 
 # ==================== Global State ====================
 
@@ -71,8 +83,10 @@ async def on_ready():
         bot_logger.info(f'Discord.py Version: {discord.__version__}')
         bot_logger.info(f'Python Version: {sys.version}')
 
+        # الاتصال بقاعدة البيانات
         await db.connect()
 
+        # ==================== تسجيل الأوامر ====================
         if not commands_registered:
             bot_logger.info('بدء تسجيل الأوامر...')
 
@@ -81,11 +95,31 @@ async def on_ready():
             setup_utility_commands(bot)
             setup_fun_commands(bot)
             setup_info_commands(bot)
+            setup_autoresponse_commands(bot)
+            setup_poll_commands(bot)
+            setup_invite_commands(bot)
+            setup_analytics_commands(bot)
 
             commands_registered = True
 
+        # ==================== الأنظمة ====================
+
+        # بدء نظام الاستطلاعات
+        poll_system.start(bot)
+
+        # تخزين الدعوات الحالية
+        for guild in bot.guilds:
+            try:
+                await invite_tracker.cache_invites(guild)
+            except Exception:
+                pass
+
+        # ==================== Views ====================
+
         bot.add_view(TicketControlView())
         bot.add_view(TicketPanelView())
+
+        # ==================== Sync ====================
 
         if GUILD_ID:
             guild = discord.Object(id=int(GUILD_ID))
@@ -156,7 +190,6 @@ async def main():
         await shutdown(bot)
         raise
 
-
 if __name__ == '__main__':
     try:
         bot_logger.info('=' * 50)
@@ -171,6 +204,6 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         bot_logger.info('تم إيقاف البوت')
 
-    except Exception as e:
+    except Exception:
         bot_logger.critical('فشل تشغيل البوت', exc_info=True)
         sys.exit(1)
